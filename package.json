@@ -1,26 +1,26 @@
-﻿{
-    "name":  "ccswitch-deepseek",
-    "version":  "1.0.0",
-    "description":  "",
-    "type":  "module",
-    "main":  "index.js",
-    "scripts":  {
-                    "start":  "node index.js",
-                    "start2":  "node index2.js",
-                    "test":  "node --test tests/",
-                    "test:translate":  "node --test test_translate.js"
-                },
-    "keywords":  [
-
-                 ],
-    "author":  "",
-    "license":  "ISC",
-    "dependencies":  {
-                         "axios":  "^1.16.0",
-                         "better-sqlite3":  "^12.9.0",
-                         "cors":  "^2.8.6",
-                         "dotenv":  "^17.4.2",
-                         "express":  "^5.2.1",
-                         "openai":  "^6.37.0"
-                     }
+{
+    "name": "ccswitch-deepseek",
+    "version": "1.1.0",
+    "description": "Codex CLI -> DeepSeek proxy. Translates OpenAI Responses API to DeepSeek Chat Completions API.",
+    "type": "module",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js",
+        "test": "node --test test_translate.js test_sse.js",
+        "test:translate": "node --test test_translate.js",
+        "test:sse": "node --test test_sse.js"
+    },
+    "keywords": [
+        "deepseek",
+        "codex",
+        "openai",
+        "responses-api",
+        "chat-completions",
+        "proxy"
+    ],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "dotenv": "^17.4.2"
+    }
 }

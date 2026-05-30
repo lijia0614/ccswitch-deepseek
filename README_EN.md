@@ -20,10 +20,16 @@ Edit `.env`:
 api_key=sk-your-deepseek-api-key
 ```
 
-Start:
+Start (default port 11435, default model deepseek-v4-pro):
 
 ```bash
 npm start
+```
+
+Custom config:
+
+```bash
+npm start -- --port 8080 --model deepseek-chat
 ```
 
 ## Files
@@ -32,10 +38,11 @@ npm start
 |------|-------------|
 | `index.js` | HTTP server entry |
 | `lib/log.js` | Colored logging |
-| `lib/translate.js` | Input translation (Responses -> Chat) |
+| `lib/translate.js` | Input translation (Responses -> Chat), incl. multimodal |
 | `lib/sse.js` | SSE event translation (Chat -> Responses) |
-| `lib/recover.js` | reasoning_content auto-restore |
-| `test_translate.js` | 33 unit tests |
+| `lib/recover.js` | reasoning_content per-session restore |
+| `test_translate.js` | Translation unit tests |
+| `test_sse.js` | SSE event translation unit tests |
 
 ## Translations
 
@@ -46,7 +53,7 @@ npm start
 - `function_call_output` -> `tool` message
 - `reasoning` items (skip, retain `reasoning_content`)
 - `developer` role -> `system`
-- `input_image` -> `image_url` (multimodal)
+- `input_image` -> `image_url` (full multimodal support)
 - `input_file` / `input_audio` -> skip with stats
 
 ### Output (Chat Completions -> Responses SSE)
@@ -64,15 +71,15 @@ npm start
 - `temperature` / `top_p` / `max_output_tokens` passthrough
 - `tools` / `tool_choice` translation
 - `thinking` / `reasoning` -> DeepSeek thinking mode
-- `reasoning_content` auto-restore across rounds
+- `reasoning_content` auto-restore (per-session isolation)
 
 ## Tests
 
 ```bash
-npm run test:translate
+npm run test
 ```
 
-33 unit tests covering all translation logic.
+43 unit tests covering translation logic + SSE events.
 
 ## License
 

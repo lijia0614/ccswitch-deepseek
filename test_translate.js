@@ -18,6 +18,44 @@ test("translateMessages - reasoning skipped", () => { const r = translateMessage
 test("translateMessages - rc stripped (default)", () => { const r = translateMessages([{role:"assistant",content:"a",reasoning_content:"t"}]); assert.equal(r.messages[0].reasoning_content, undefined); assert.equal(r.stats.strippedReasoningContent, 1); });
 test("translateMessages - rc kept", () => { const r = translateMessages([{role:"assistant",content:"a",reasoning_content:"t"}], {keepReasoningContent:true}); assert.equal(r.messages[0].reasoning_content, "t"); assert.equal(r.stats.preservedReasoningContent, 1); assert.equal(r.stats.strippedReasoningContent, 0); });
 test("translateMessages - file+audio stats", () => { const r = translateMessages([{role:"user",content:[{type:"input_text",text:"hi"},{type:"input_file"},{type:"input_audio"}]}]); assert.equal(r.stats.skipped.file, 1); assert.equal(r.stats.skipped.audio, 1); });
+test("translateMessages - image translation to image_url", () => {
+  const r = translateMessages([{role:"user",content:[{type:"input_text",text:"describe this"},{type:"input_image",image_url:"data:image/png;base64,abc"}]}]);
+  assert.equal(r.messages.length, 1);
+  assert.equal(r.stats.skipped.image, 0);
+  assert.ok(Array.isArray(r.messages[0].content), "multimodal content should be array");
+  assert.equal(r.messages[0].content.length, 2);
+  assert.equal(r.messages[0].content[0].type, "text");
+  assert.equal(r.messages[0].content[1].type, "image_url");
+  assert.equal(r.messages[0].content[1].image_url.url, "data:image/png;base64,abc");
+});
+test("translateMessages - image with file_id skipped", () => {
+  const r = translateMessages([{role:"user",content:[{type:"input_text",text:"hi"},{type:"input_image",file_id:"file-123"}]}]);
+  assert.equal(r.messages.length, 1);
+  assert.equal(r.stats.skipped.image, 1);
+  assert.equal(typeof r.messages[0].content, "string"); // single text part -> string
+});
+test("translateMessages - text-only array becomes string", () => {
+  const r = translateMessages([{role:"user",content:[{type:"input_text",text:"hello"}]}]);
+  assert.equal(r.messages.length, 1);
+  assert.equal(typeof r.messages[0].content, "string");
+  assert.equal(r.messages[0].content, "hello");
+});
+test("translateMessages - multiple images", () => {
+  const r = translateMessages([{role:"user",content:[
+    {type:"input_text",text:"compare"},
+    {type:"input_image",image_url:"data:1"},
+    {type:"input_image",image_url:"data:2"}
+  ]}]);
+  assert.equal(r.stats.skipped.image, 0);
+  assert.ok(Array.isArray(r.messages[0].content));
+  assert.equal(r.messages[0].content.filter(p => p.type === "image_url").length, 2);
+});
+test("translateMessages - image in assistant with output_text unchanged", () => {
+  const r = translateMessages([{role:"assistant",content:[{type:"output_text",text:"result"}]}]);
+  assert.equal(r.messages.length, 1);
+  assert.equal(r.messages[0].role, "assistant");
+  assert.equal(r.messages[0].content, "result");
+});
 test("translateMessages - status incomplete", () => { const r = translateMessages([{type:"function_call",call_id:"c1",name:"f",arguments:"{}",status:"incomplete"}]); assert.equal(r.messages.length, 1); assert.equal(r.messages[0].role, "assistant"); });
 test("translateMessages - empty array", () => { assert.equal(translateMessages([]).messages.length, 0); });
 test("translateMessages - null", () => { assert.equal(translateMessages(null).messages.length, 0); });

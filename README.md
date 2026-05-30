@@ -22,10 +22,16 @@ npm install
 api_key=sk-your-deepseek-api-key
 ```
 
-启动：
+启动（默认端口 11435，默认模型 deepseek-v4-pro）：
 
 ```bash
 npm start
+```
+
+自定义配置：
+
+```bash
+npm start -- --port 8080 --model deepseek-chat
 ```
 
 ## 文件结构
@@ -34,10 +40,11 @@ npm start
 |------|------|
 | `index.js` | HTTP 服务主入口 |
 | `lib/log.js` | 彩色日志工具 |
-| `lib/translate.js` | 输入翻译 (Responses -> Chat) |
+| `lib/translate.js` | 输入翻译 (Responses -> Chat)，含多模态 |
 | `lib/sse.js` | SSE 事件翻译 (Chat -> Responses) |
-| `lib/recover.js` | reasoning_content 自动记忆与补回 |
-| `test_translate.js` | 翻译逻辑单元测试 (33 用例) |
+| `lib/recover.js` | reasoning_content 多会话记忆与补回 |
+| `test_translate.js` | 翻译逻辑单元测试 |
+| `test_sse.js` | SSE 事件翻译单元测试 |
 
 ## 翻译覆盖
 
@@ -48,7 +55,7 @@ npm start
 - `function_call_output` -> `tool` message
 - `reasoning` items（跳过，保留 `reasoning_content`）
 - `developer` role -> `system`
-- `input_image` -> `image_url`（多模态）
+- `input_image` -> `image_url`（完整多模态支持）
 - `input_file` / `input_audio` -> 跳过统计
 
 ### 输出 (Chat Completions -> Responses SSE)
@@ -66,15 +73,15 @@ npm start
 - `temperature` / `top_p` / `max_output_tokens` 透传
 - `tools` / `tool_choice` 翻译
 - `thinking` / `reasoning` -> DeepSeek thinking 模式
-- `reasoning_content` 跨轮次自动补回
+- `reasoning_content` 跨轮次自动补回（按会话隔离）
 
 ## 运行测试
 
 ```bash
-npm run test:translate
+npm run test
 ```
 
-33 个翻译逻辑单元测试，不依赖网络。
+43 个单元测试，覆盖翻译逻辑 + SSE 事件流，不依赖网络。
 
 ## License
 
