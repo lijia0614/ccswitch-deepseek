@@ -6,7 +6,7 @@ dotenv.config();
 import log from "./lib/log.js";
 import { translateMessages, translateTools, translateToolChoice, lastUserText } from "./lib/translate.js";
 import { SseTranslator } from "./lib/sse.js";
-import { rememberReasoning, recoverReasoning, sessionKey, linkResponse, cleanupSession, pruneStale } from "./lib/recover.js";
+import { rememberReasoning, recoverReasoning, sessionKey, linkResponse, pruneStale } from "./lib/recover.js";
 
 // ---- CLI 参数 ----
 const args = process.argv.slice(2);
@@ -19,12 +19,16 @@ const MODEL = getArg("--model", "deepseek-v4-pro");
 const PORT = parseInt(getArg("--port", "11435"), 10);
 const HOST = "127.0.0.1";
 
-function readBody(req) {
+// 兼容所有 Node.js 版本的请求体读取，带超时保护
+function readBody(req, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const chunks = [];
+    const timer = setTimeout(() => {
+      reject(new Error("body read timeout after " + timeoutMs + "ms"));
+    }, timeoutMs);
     req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString()));
-    req.on("error", reject);
+    req.on("end", () => { clearTimeout(timer); resolve(Buffer.concat(chunks).toString()); });
+    req.on("error", (e) => { clearTimeout(timer); reject(e); });
   });
 }
 
@@ -43,7 +47,6 @@ function buildChatBody(body) {
   if (stats.strippedReasoningContent > 0) log.skip("rc stripped x" + stats.strippedReasoningContent);
   if (stats.preservedReasoningContent > 0 && !restored) log.info("rc preserved x" + stats.preservedReasoningContent);
 
-  const userMsgs = messages.filter(m => m.role === "user").length;
   const lastUser = lastUserText(messages);
   const preview = lastUser.length > 120 ? lastUser.slice(0, 120) + "..." : lastUser;
   log.req("thinking:" + (effectiveThinking ? "on" : "off") + " msgs:" + messages.length + " stream:" + stream + " imgs:" + stats.skipped.image + " | " + preview);
@@ -53,8 +56,7 @@ function buildChatBody(body) {
   messages.unshift({ role: "system", content: instructions });
 
   const chatBody = { model: MODEL, messages, stream };
-  if (effectiveThinking) { chatBody.thinking = { type: "enabled" }; }
-  else { chatBody.thinking = { type: "disabled" }; }
+  chatBody.thinking = effectiveThinking ? { type: "enabled" } : { type: "disabled" };
 
   const tools = translateTools(body.tools);
   if (tools.length > 0) { chatBody.tools = tools; const tc = translateToolChoice(body.tool_choice); if (tc) chatBody.tool_choice = tc; }
@@ -76,33 +78,31 @@ function buildNonStreamResponse(completion) {
 }
 
 const server = http.createServer(async (req, res) => {
+  // 入口日志：每个请求先记录
+  log.info("<- " + req.method + " " + req.url);
+
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS, GET");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
+
   const url = new URL(req.url, "http://" + req.headers.host);
-  if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/v1" || url.pathname === "/health")) { res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ service: "ccswitch-deepseek", model: MODEL, status: "ok", port: PORT })); }
+
+  if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/v1" || url.pathname === "/health")) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ service: "ccswitch-deepseek", model: MODEL, status: "ok", port: PORT }));
+  }
+
   if (req.method === "POST" && (url.pathname === "/v1/responses" || url.pathname === "/responses")) {
-    let dsReq;
-    let aborted = false;
-
-    // 客户端断开时中止上游请求，避免浪费 token
-    const onClientClose = () => {
-      aborted = true;
-      if (dsReq && !dsReq.destroyed) {
-        log.warn("client disconnected, aborting upstream");
-        dsReq.destroy();
-      }
-    };
-    req.once("close", onClientClose);
-
     try {
       const raw = await readBody(req);
-      if (aborted) return;
-      const body = JSON.parse(raw);
-      const { chatBody, stream, messages, sessionKey: sk } = buildChatBody(body);
+      log.info("body received: " + raw.length + " bytes");
 
-      dsReq = https.request({
+      const body = JSON.parse(raw);
+      const { chatBody, stream, sessionKey: sk } = buildChatBody(body);
+
+      const dsReq = https.request({
         hostname: "api.deepseek.com",
         path: "/v1/chat/completions",
         method: "POST",
@@ -124,10 +124,10 @@ const server = http.createServer(async (req, res) => {
           });
           return;
         }
+
         if (!stream) {
           let data = ""; dsRes.on("data", c => data += c);
           dsRes.on("end", () => {
-            if (aborted) return;
             try {
               const completion = JSON.parse(data);
               if (completion.choices?.[0]?.message?.reasoning_content) {
@@ -147,15 +147,13 @@ const server = http.createServer(async (req, res) => {
           });
           return;
         }
+
         // 流式响应
-        if (!res.headersSent) {
-          res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-        }
+        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
         const translator = new SseTranslator(res);
         let buf = "";
 
         dsRes.on("data", (chunk) => {
-          if (aborted) return;
           buf += chunk.toString();
           const ls = buf.split("\n");
           buf = ls.pop() ?? "";
@@ -167,7 +165,6 @@ const server = http.createServer(async (req, res) => {
           }
         });
         dsRes.on("end", () => {
-          if (aborted) return;
           if (buf.trim()) {
             for (const line of buf.split("\n")) {
               if (!line.startsWith("data: ")) continue;
@@ -182,14 +179,12 @@ const server = http.createServer(async (req, res) => {
           translator.done(null);
         });
         dsRes.on("error", (e) => {
-          if (aborted) return;
           log.err("upstream: " + e.message);
-          translator.error(e.message);
+          if (!res.headersSent) { res.writeHead(502); res.end(JSON.stringify({ error: { message: e.message } })); }
         });
       });
 
       dsReq.on("error", (e) => {
-        if (aborted) return;
         log.err("connect: " + e.message);
         if (!res.headersSent) { res.writeHead(502); res.end(JSON.stringify({ error: { message: e.message } })); }
       });
@@ -200,15 +195,16 @@ const server = http.createServer(async (req, res) => {
       dsReq.write(JSON.stringify(chatBody));
       dsReq.end();
 
-      // 定期清理老旧会话
       pruneStale();
 
     } catch (e) {
-      log.err("parse: " + e.message);
+      log.err("handler error: " + e.message);
       if (!res.headersSent) { res.writeHead(400); res.end(JSON.stringify({ error: { message: e.message } })); }
     }
     return;
   }
+
+  log.warn("unmatched: " + req.method + " " + url.pathname);
   res.writeHead(404); res.end(JSON.stringify({ error: { message: "not found: " + url.pathname } }));
 });
 
