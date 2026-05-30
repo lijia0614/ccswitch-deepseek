@@ -19,7 +19,14 @@ const MODEL = getArg("--model", "deepseek-v4-pro");
 const PORT = parseInt(getArg("--port", "11435"), 10);
 const HOST = "127.0.0.1";
 
-async function readBody(req) { const chunks = []; for (const chunk of req) chunks.push(chunk); return Buffer.concat(chunks).toString(); }
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString()));
+    req.on("error", reject);
+  });
+}
 
 function buildChatBody(body) {
   const stream = body.stream !== false;
